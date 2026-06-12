@@ -3,10 +3,6 @@
 #include <MeshCore.h>
 #include <Arduino.h>
 
-#ifndef USER_BTN_PRESSED
-#define USER_BTN_PRESSED LOW
-#endif
-
 #if defined(ESP_PLATFORM)
 
 #include <rom/rtc.h>
@@ -151,6 +147,11 @@ public:
   }
 
   bool startOTAUpdate(const char* id, char reply[]) override;
+  bool startHttpOtaFromUrl(const char* url, char reply[]);
+  void prepareHttpOtaMinimalTransport(uint8_t wifi_path);
+  void restoreHttpOtaMinimalTransport();
+  void emitHttpOtaNetDiagnosticLines();
+  void pollHttpOtaReboot();
 
   void setInhibitSleep(bool inhibit) {
     inhibit_sleep = inhibit;
@@ -182,5 +183,8 @@ public:
     settimeofday(&tv, NULL);
   }
 };
+
+/** Repeater TCP companion: suspend non-active Wi-Fi transports during HTTP OTA. */
+void meshcoreRegisterHttpOtaMinimalTransport(void (*prepare)(uint8_t wifi_path), void (*restore)());
 
 #endif

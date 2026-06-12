@@ -1,15 +1,16 @@
 #pragma once
 
 #include "../BaseSerialInterface.h"
-#include <BLEDevice.h>
-#include <BLEServer.h>
-#include <BLEUtils.h>
-#include <BLE2902.h>
+#include <NimBLEDevice.h>
 
-class SerialBLEInterface : public BaseSerialInterface, BLESecurityCallbacks, BLEServerCallbacks, BLECharacteristicCallbacks {
-  BLEServer *pServer;
-  BLEService *pService;
-  BLECharacteristic * pTxCharacteristic;
+// NimBLE port of the companion BLE (Nordic UART) transport. Public API is kept
+// identical to the previous Bluedroid implementation so MultiTransportCompanionInterface
+// and the plain *_ble envs need no changes. NimBLE's host is ~tens of KB lighter on the
+// heap than Bluedroid, which is what lets Wi-Fi + BLE coexist on this ESP32-S3.
+class SerialBLEInterface : public BaseSerialInterface, public NimBLEServerCallbacks, public NimBLECharacteristicCallbacks {
+  NimBLEServer *pServer;
+  NimBLEService *pService;
+  NimBLECharacteristic *pTxCharacteristic;
   bool deviceConnected;
   bool oldDeviceConnected;
   bool _isEnabled;
@@ -17,41 +18,41 @@ class SerialBLEInterface : public BaseSerialInterface, BLESecurityCallbacks, BLE
   uint32_t _pin_code;
   unsigned long _last_write;
   unsigned long adv_restart_time;
+  uint8_t _peer_bda[6];
+  bool _peer_bda_valid;
 
   struct Frame {
     uint8_t len;
     uint8_t buf[MAX_FRAME_SIZE];
   };
 
-  #define FRAME_QUEUE_SIZE  4
+  // Larger queue reduces dropped push/tickle frames during short BLE congestion bursts.
+  #define FRAME_QUEUE_SIZE  12
   int recv_queue_len;
   Frame recv_queue[FRAME_QUEUE_SIZE];
   int send_queue_len;
   Frame send_queue[FRAME_QUEUE_SIZE];
 
   void clearBuffers() { recv_queue_len = 0; send_queue_len = 0; }
+  void startAdvertising();
 
 protected:
-  // BLESecurityCallbacks methods
+  // NimBLEServerCallbacks — connection lifecycle + security
+  void onConnect(NimBLEServer* pServer, ble_gap_conn_desc* desc) override;
+  void onDisconnect(NimBLEServer* pServer) override;
+  void onMTUChange(uint16_t MTU, ble_gap_conn_desc* desc) override;
   uint32_t onPassKeyRequest() override;
-  void onPassKeyNotify(uint32_t pass_key) override;
   bool onConfirmPIN(uint32_t pass_key) override;
-  bool onSecurityRequest() override;
-  void onAuthenticationComplete(esp_ble_auth_cmpl_t cmpl) override;
+  void onAuthenticationComplete(ble_gap_conn_desc* desc) override;
 
-  // BLEServerCallbacks methods
-  void onConnect(BLEServer* pServer) override;
-  void onConnect(BLEServer* pServer, esp_ble_gatts_cb_param_t *param) override;
-  void onMtuChanged(BLEServer* pServer, esp_ble_gatts_cb_param_t* param) override;
-  void onDisconnect(BLEServer* pServer) override;
-
-  // BLECharacteristicCallbacks methods
-  void onWrite(BLECharacteristic* pCharacteristic, esp_ble_gatts_cb_param_t* param) override;
+  // NimBLECharacteristicCallbacks
+  void onWrite(NimBLECharacteristic* pCharacteristic) override;
 
 public:
   SerialBLEInterface() {
     pServer = NULL;
     pService = NULL;
+    pTxCharacteristic = NULL;
     deviceConnected = false;
     oldDeviceConnected = false;
     adv_restart_time = 0;
@@ -59,6 +60,7 @@ public:
     _last_write = 0;
     last_conn_id = 0;
     send_queue_len = recv_queue_len = 0;
+    _peer_bda_valid = false;
   }
 
   /**
@@ -76,9 +78,15 @@ public:
 
   bool isConnected() const override;
 
+  /** If a peer is connected, format their BLE address into buf as "XX:XX:XX:XX:XX:XX" and return true; else buf[0]='\0' and return false. */
+  bool getConnectedPeerAddress(char* buf, size_t len) const;
+
   bool isWriteBusy() const override;
   size_t writeFrame(const uint8_t src[], size_t len) override;
   size_t checkRecvFrame(uint8_t dest[]) override;
+
+  /** Drain one frame from the send queue if interval allows. Call every loop so BLE gets updates even when USB/TCP are polled first. */
+  void drainSendQueue();
 };
 
 #if BLE_DEBUG_LOGGING && ARDUINO
