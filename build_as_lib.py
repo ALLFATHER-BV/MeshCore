@@ -10,7 +10,6 @@ src_filter = [
   '+<helpers/radiolib/*.cpp>',
   '+<helpers/ui/MomentaryButton.cpp>',
   '+<helpers/ui/buzzer.cpp>',
-  '+<helpers/input/*.cpp>',   # wadamesh: board touch/keyboard/trackball drivers (each self-guards by board define)
 ]
 
 # add build and include dirs according to CPPDEFINES
